@@ -1,5 +1,180 @@
 import { init, Terminal, FitAddon } from 'ghostty-web';
 
+/** @typedef {ArrayBuffer | ArrayBufferView} BinaryInput */
+
+/**
+ * @typedef {Object} DecodedFrame
+ * @property {number} channel
+ * @property {number} kind
+ * @property {Uint8Array} payload
+ */
+
+/**
+ * @typedef {{
+ *   address: string,
+ *   name?: string,
+ *   state?: string,
+ *   title?: string,
+ *   labels?: Record<string, string>,
+ *   cols?: number,
+ *   rows?: number,
+ *   exit_code?: number,
+ *   [key: string]: unknown,
+ * }} TerminalRecord
+ */
+
+/**
+ * @typedef {Object} WebSocketLike
+ * @property {string} binaryType
+ * @property {number} readyState
+ * @property {((event: Event) => void) | null} onopen
+ * @property {((event: Event) => void) | null} onerror
+ * @property {((event: MessageEvent) => void) | null} onmessage
+ * @property {((event: CloseEvent) => void) | null} onclose
+ * @property {(data: string | ArrayBuffer | ArrayBufferView) => void} send
+ * @property {() => void} close
+ */
+
+/** @typedef {new (url: string) => WebSocketLike} WebSocketConstructor */
+
+/**
+ * @typedef {Object} HerdConnectionOptions
+ * @property {string} url WebSocket endpoint for the herdr gateway.
+ * @property {string} [token] Authentication token added to the WebSocket URL.
+ * @property {WebSocketConstructor} [WebSocket] WebSocket implementation, useful for non-browser hosts and tests.
+ * @property {boolean} [reconnect=true] Whether to reconnect after a disconnect.
+ * @property {number} [reconnectDelay=500] Initial reconnect delay in milliseconds.
+ * @property {number} [maxReconnectDelay=10000] Maximum reconnect delay in milliseconds.
+ * @property {number} [rpcTimeout=20000] RPC timeout in milliseconds.
+ */
+
+/** @typedef {'idle' | 'connecting' | 'connected' | 'ready' | 'disconnected' | 'reconnecting' | 'destroyed'} HerdConnectionState */
+
+/**
+ * @typedef {Object} HerdConnectionStatusEvent
+ * @property {HerdConnectionState} state
+ * @property {number} attempt
+ * @property {number} [code]
+ * @property {string} [reason]
+ * @property {number} [delay]
+ */
+
+/**
+ * @typedef {Object} HerdTerminalsEvent
+ * @property {TerminalRecord[]} terminals
+ */
+
+/**
+ * @typedef {Object} HerdTerminalEvent
+ * @property {string} type
+ * @property {string} terminal
+ * @property {Record<string, unknown>} [data]
+ */
+
+/**
+ * @typedef {Object} HerdMissedEvent
+ * @property {TerminalRecord[]} terminals
+ */
+
+/**
+ * @typedef {Object} HerdErrorEvent
+ * @property {unknown} error
+ */
+
+/**
+ * @typedef {Object} HerdConnectionEventMap
+ * @property {HerdConnectionStatusEvent} status Connection lifecycle state changed.
+ * @property {HerdTerminalsEvent} ready Initialization completed.
+ * @property {HerdTerminalsEvent} terminals The terminal snapshot changed.
+ * @property {HerdTerminalEvent} event A terminal event notification arrived.
+ * @property {HerdMissedEvent} missed Events were missed and the snapshot was replaced.
+ * @property {HerdErrorEvent} error A socket or initialization error occurred.
+ */
+
+/**
+ * @typedef {Object} HerdListTerminalsOptions
+ * @property {boolean} [all=true]
+ * @property {Record<string, string>} [labels]
+ */
+
+/** @typedef {{ reason?: string, exit_code?: number, [key: string]: unknown }} HerdCloseEvent */
+
+/**
+ * @typedef {Object} HerdAttachmentOptions
+ * @property {string} terminal Terminal address.
+ * @property {number} cols Initial column count.
+ * @property {number} rows Initial row count.
+ * @property {number} [history=500] Number of history bytes to request.
+ * @property {boolean} [observe=false] Whether to attach in observer mode.
+ * @property {(bytes: Uint8Array) => void} onData Terminal output callback.
+ * @property {(reason: HerdCloseEvent | null) => void} [onClose] Close callback.
+ * @property {() => void} [onDisconnect] Disconnect callback.
+ */
+
+/**
+ * @typedef {Object} HerdAttachmentResult
+ * @property {number} channel
+ * @property {TerminalRecord} terminal
+ */
+
+/**
+ * @typedef {Object} HerdAttachment
+ * @property {number} channel
+ * @property {HerdAttachmentResult} result
+ * @property {WebSocketLike} socket
+ * @property {boolean} open
+ * @property {(bytes: Uint8Array) => void} onData
+ * @property {((reason: HerdCloseEvent | null) => void) | undefined} onClose
+ * @property {(() => void) | undefined} onDisconnect
+ * @property {(data: string | BinaryInput) => boolean} write
+ * @property {(cols: number, rows: number) => boolean} resize
+ * @property {(focused: boolean) => boolean} focus
+ * @property {() => void} close
+ */
+
+/** @typedef {import('ghostty-web').ITerminalOptions} HerdTerminalOptions */
+
+/**
+ * @typedef {Object} FocusTarget
+ * @property {(type: string, listener: EventListener) => void} [addEventListener]
+ * @property {(type: string, listener: EventListener) => void} [removeEventListener]
+ */
+
+/**
+ * @typedef {Object} HerdViewOptions
+ * @property {HerdTerminalOptions} [terminalOptions] Options passed to the ghostty-web terminal.
+ * @property {number} [history=500] Number of history bytes to request on attach.
+ * @property {boolean} [autoFocus=true] Whether to focus after attaching as a viewer.
+ * @property {boolean} [autoResize=true] Whether to observe the container size.
+ * @property {FocusTarget | null} [focusTarget=globalThis.window] Target for focus and blur listeners.
+ */
+
+/** @typedef {'attaching' | 'attached' | 'reconnecting' | 'closed' | 'detached' | 'error' | 'destroyed'} HerdViewState */
+
+/**
+ * @typedef {Object} HerdViewStatusEvent
+ * @property {HerdViewState} state
+ * @property {string | null} address
+ * @property {boolean} observe
+ * @property {TerminalRecord} [terminal]
+ * @property {HerdCloseEvent | null} [reason]
+ * @property {unknown} [error]
+ */
+
+/** @typedef {{ title: string }} HerdViewTitleEvent */
+/** @typedef {{ cols: number, rows: number }} HerdViewResizeEvent */
+/** @typedef {{ focused: boolean }} HerdViewFocusEvent */
+
+/**
+ * @typedef {Object} HerdViewEventMap
+ * @property {HerdViewStatusEvent} status View lifecycle state changed.
+ * @property {HerdViewTitleEvent} title The terminal OSC title changed.
+ * @property {HerdCloseEvent} closed The attached terminal closed.
+ * @property {HerdViewResizeEvent} resize The renderer dimensions changed.
+ * @property {HerdViewFocusEvent} focus Viewer focus was reported.
+ * @property {HerdErrorEvent} error Automatic reattachment failed.
+ */
+
 const DATA = 0;
 const CREDIT = 1;
 const CLOSE = 2;
@@ -11,9 +186,16 @@ const decoder = new TextDecoder();
 
 class Emitter {
   constructor() {
+    /** @type {Map<string, Set<(detail: any) => void>>} */
     this.listeners = new Map();
   }
 
+  /**
+   * @template T
+   * @param {string} type
+   * @param {(detail: T) => void} listener
+   * @returns {() => void}
+   */
   on(type, listener) {
     if (typeof listener !== 'function') throw new TypeError('listener must be a function');
     let listeners = this.listeners.get(type);
@@ -28,6 +210,7 @@ class Emitter {
     };
   }
 
+  /** @param {string} type @param {any} detail */
   emit(type, detail) {
     for (const listener of [...(this.listeners.get(type) || [])]) listener(detail);
   }
@@ -37,9 +220,17 @@ class Emitter {
   }
 }
 
+/**
+ * @returns {{
+ *   promise: Promise<boolean>,
+ *   resolve: (value: boolean | PromiseLike<boolean>) => void,
+ *   reject: (reason?: unknown) => void,
+ * }}
+ */
 const deferred = () => {
   let resolve;
   let reject;
+  /** @type {Promise<boolean>} */
   const promise = new Promise((res, rej) => {
     resolve = res;
     reject = rej;
@@ -47,6 +238,10 @@ const deferred = () => {
   return { promise, resolve, reject };
 };
 
+/**
+ * @param {BinaryInput} value
+ * @returns {Uint8Array}
+ */
 const asBytes = (value) => {
   if (value instanceof Uint8Array) return value;
   if (value instanceof ArrayBuffer) return new Uint8Array(value);
@@ -54,6 +249,11 @@ const asBytes = (value) => {
   throw new TypeError('expected an ArrayBuffer or typed array');
 };
 
+/**
+ * Create an incremental UTF-8 JSON-lines parser.
+ * @param {(line: string) => void} onLine Callback for each complete JSON line.
+ * @returns {(chunk: BinaryInput) => void} A function that accepts binary chunks.
+ */
 export function createJsonLineParser(onLine) {
   const textDecoder = new TextDecoder();
   let pending = '';
@@ -76,6 +276,12 @@ export function createJsonLineParser(onLine) {
   };
 }
 
+/**
+ * @param {number} channel
+ * @param {number} kind
+ * @param {BinaryInput} [payload]
+ * @returns {Uint8Array}
+ */
 export function encodeFrame(channel, kind, payload = EMPTY) {
   const bytes = asBytes(payload);
   const output = new Uint8Array(9 + bytes.byteLength);
@@ -87,6 +293,10 @@ export function encodeFrame(channel, kind, payload = EMPTY) {
   return output;
 }
 
+/**
+ * @param {BinaryInput} input
+ * @returns {DecodedFrame | null}
+ */
 export function decodeFrame(input) {
   const bytes = asBytes(input);
   if (bytes.byteLength < 9) return null;
@@ -100,12 +310,14 @@ export function decodeFrame(input) {
   };
 }
 
+/** @param {number} bytes @returns {Uint8Array} */
 export function encodeCredit(bytes) {
   const output = new Uint8Array(4);
   new DataView(output.buffer).setUint32(0, bytes, true);
   return output;
 }
 
+/** @param {number} cols @param {number} rows @returns {Uint8Array} */
 export function encodeResize(cols, rows) {
   const output = new Uint8Array(4);
   const view = new DataView(output.buffer);
@@ -114,12 +326,18 @@ export function encodeResize(cols, rows) {
   return output;
 }
 
+/**
+ * @param {string | URL} url
+ * @param {string | null} [token]
+ * @returns {string}
+ */
 export function webSocketUrl(url, token) {
   const result = new URL(url, globalThis.location?.origin);
   if (token != null) result.searchParams.set('token', token);
   return result.href;
 }
 
+/** @param {Uint8Array} payload @returns {HerdCloseEvent | null} */
 const closeReason = (payload) => {
   if (!payload.byteLength) return null;
   try {
@@ -129,12 +347,21 @@ const closeReason = (payload) => {
   }
 };
 
+/** @param {any} result @returns {TerminalRecord[]} */
 const terminalArray = (result) => {
   if (Array.isArray(result)) return result;
   return Array.isArray(result?.terminals) ? result.terminals : [];
 };
 
 export class HerdConnection {
+  /**
+   * @overload
+   * @param {HerdConnectionOptions} options
+   * @returns {HerdConnection}
+   */
+  /**
+   * @param {HerdConnectionOptions} options
+   */
   constructor({
     url,
     token,
@@ -148,6 +375,7 @@ export class HerdConnection {
     if (!WebSocketClass) throw new TypeError('WebSocket is unavailable');
     this.url = url;
     this.token = token;
+    /** @type {HerdConnectionState} */
     this.state = 'idle';
     this.reconnect = reconnect;
     this.reconnectDelay = reconnectDelay;
@@ -155,34 +383,58 @@ export class HerdConnection {
     this.rpcTimeout = rpcTimeout;
     this.WebSocketClass = WebSocketClass;
     this.emitter = new Emitter();
+    /** @type {Map<string, TerminalRecord>} */
     this.records = new Map();
+    /** @type {Map<number, any>} */
     this.pending = new Map();
+    /** @type {Map<number, HerdAttachment>} */
     this.attachments = new Map();
+    /** @type {Map<number, (chunk: BinaryInput) => void>} */
     this.parsers = new Map();
     this.nextId = 1;
+    /** @type {WebSocketLike | null} */
     this.socket = null;
     this.gatewayReady = false;
     this.started = false;
     this.destroyed = false;
     this.attempt = 0;
+    /** @type {ReturnType<typeof setTimeout> | null} */
     this.reconnectTimer = null;
+    /** @type {number | null} */
     this.eventsChannel = null;
     this.firstReady = deferred();
     this.cycle = deferred();
   }
 
+  /**
+   * Subscribe to a connection event.
+   * @template {keyof HerdConnectionEventMap} T
+   * @param {T} type
+   * @param {(detail: HerdConnectionEventMap[T]) => void} listener
+   * @returns {() => void} Unsubscribe function.
+   */
   on(type, listener) {
     return this.emitter.on(type, listener);
   }
 
+  /** @returns {TerminalRecord[]} */
   get terminals() {
     return [...this.records.values()];
   }
 
+  /** @param {string} address @returns {TerminalRecord | undefined} */
   getTerminal(address) {
     return this.records.get(address);
   }
 
+  /**
+   * Connect and wait for the first successful initialization.
+   * @returns {Promise<boolean>}
+   * @fires HerdConnection#status
+   * @fires HerdConnection#ready
+   * @fires HerdConnection#terminals
+   * @fires HerdConnection#error
+   */
   connect() {
     if (this.destroyed) return Promise.reject(new Error('connection destroyed'));
     if (!this.started) {
@@ -192,16 +444,19 @@ export class HerdConnection {
     return this.firstReady.promise;
   }
 
+  /** @returns {Promise<boolean>} Whether the current connection cycle initialized. */
   whenReady() {
     if (this.state === 'ready') return Promise.resolve(true);
     return this.cycle.promise;
   }
 
+  /** @private @param {HerdConnectionState} state @param {Object} [detail] */
   setState(state, detail = {}) {
     this.state = state;
     this.emitter.emit('status', { state, attempt: this.attempt, ...detail });
   }
 
+  /** @private */
   openSocket() {
     if (!this.started || this.destroyed) return;
     clearTimeout(this.reconnectTimer);
@@ -241,6 +496,7 @@ export class HerdConnection {
     };
   }
 
+  /** @private @param {WebSocketLike} socket @param {string} text */
   handleText(socket, text) {
     let message;
     try {
@@ -258,7 +514,9 @@ export class HerdConnection {
     }
   }
 
+  /** @private @param {WebSocketLike} socket */
   async initialize(socket) {
+    /** @type {{ channel?: number } | undefined} */
     const subscription = await this.rpcNow('events.subscribe', {});
     if (this.socket !== socket) return;
     this.eventsChannel = subscription?.channel ?? null;
@@ -273,6 +531,7 @@ export class HerdConnection {
     this.emitter.emit('ready', { terminals: this.terminals });
   }
 
+  /** @private @param {WebSocketLike} socket @param {Partial<Pick<CloseEvent, 'code' | 'reason'>>} [event] */
   handleClose(socket, event = {}) {
     if (this.socket !== socket) return;
     this.socket = null;
@@ -286,6 +545,7 @@ export class HerdConnection {
     this.scheduleReconnect(detail);
   }
 
+  /** @private @param {Object} [detail] */
   scheduleReconnect(detail = {}) {
     if (!this.started || this.destroyed) return;
     if (!this.reconnect) {
@@ -300,6 +560,7 @@ export class HerdConnection {
     this.reconnectTimer = setTimeout(() => this.openSocket(), delay);
   }
 
+  /** @private @param {Error} error */
   rejectPending(error) {
     for (const request of this.pending.values()) {
       clearTimeout(request.timer);
@@ -308,6 +569,7 @@ export class HerdConnection {
     this.pending.clear();
   }
 
+  /** @private */
   dropAttachments() {
     const attachments = [...this.attachments.values()];
     this.attachments.clear();
@@ -317,6 +579,13 @@ export class HerdConnection {
     }
   }
 
+  /**
+   * Call a herdr RPC method after the connection is ready.
+   * @template T
+   * @param {string} method
+   * @param {Record<string, unknown>} [params]
+   * @returns {Promise<T>}
+   */
   async rpc(method, params = {}) {
     if (this.destroyed) throw new Error('connection destroyed');
     if (!this.started) this.connect();
@@ -327,6 +596,13 @@ export class HerdConnection {
     return this.rpcNow(method, params);
   }
 
+  /**
+   * @private
+   * @template T
+   * @param {string} method
+   * @param {Record<string, unknown>} params
+   * @returns {Promise<T>}
+   */
   rpcNow(method, params) {
     const socket = this.socket;
     if (!socket || socket.readyState !== 1 || !this.gatewayReady) {
@@ -350,6 +626,7 @@ export class HerdConnection {
     });
   }
 
+  /** @private @param {WebSocketLike} socket @param {BinaryInput} input */
   handleBinary(socket, input) {
     let frame;
     try {
@@ -387,6 +664,7 @@ export class HerdConnection {
     }
   }
 
+  /** @private @param {string} line */
   handleJsonLine(line) {
     if (!line.trim()) return;
     let message;
@@ -411,11 +689,13 @@ export class HerdConnection {
     if (message.method) this.handleNotification(message);
   }
 
+  /** @private @param {any} result */
   rememberResult(result) {
     if (result?.address) this.records.set(result.address, result);
     if (result?.terminal?.address) this.records.set(result.terminal.address, result.terminal);
   }
 
+  /** @private @param {any} message */
   handleNotification(message) {
     if (message.method === 'missed') {
       this.replaceTerminals(message.params?.terminals || []);
@@ -427,6 +707,7 @@ export class HerdConnection {
     this.emitter.emit('event', message.params);
   }
 
+  /** @private @param {TerminalRecord[]} terminals @param {boolean} [notify] */
   replaceTerminals(terminals, notify = true) {
     this.records.clear();
     for (const terminal of terminals) {
@@ -435,6 +716,7 @@ export class HerdConnection {
     if (notify) this.emitter.emit('terminals', { terminals: this.terminals });
   }
 
+  /** @private @param {HerdTerminalEvent} event */
   applyEvent(event) {
     const terminal = this.records.get(event.terminal);
     const data = event.data || {};
@@ -470,12 +752,26 @@ export class HerdConnection {
     this.emitter.emit('terminals', { terminals: this.terminals });
   }
 
+  /**
+   * Refresh and return the current terminal records.
+   * @param {HerdListTerminalsOptions} [options]
+   * @returns {Promise<TerminalRecord[]>}
+   * @fires HerdConnection#terminals
+   */
   async listTerminals({ all = true, labels = {} } = {}) {
     const result = await this.rpc('terminal.list', { all, labels });
     this.replaceTerminals(terminalArray(result));
     return this.terminals;
   }
 
+  /**
+   * Send a binary frame on the active socket.
+   * @param {number} channel
+   * @param {number} kind
+   * @param {BinaryInput} [payload]
+   * @param {WebSocketLike | null} [socket]
+   * @returns {boolean} Whether the frame was sent.
+   */
   sendFrame(channel, kind, payload = EMPTY, socket = this.socket) {
     if (socket && socket === this.socket && socket.readyState === 1) {
       socket.send(encodeFrame(channel, kind, payload));
@@ -484,10 +780,17 @@ export class HerdConnection {
     return false;
   }
 
+  /**
+   * Attach to a terminal and create its binary channel.
+   * @param {HerdAttachmentOptions} options
+   * @returns {Promise<HerdAttachment>}
+   */
   async openAttachment({ terminal, cols, rows, history = 500, observe = false, onData, onClose, onDisconnect }) {
+    /** @type {HerdAttachmentResult} */
     const result = await this.rpc('terminal.attach', { terminal, cols, rows, history, observe });
     const socket = this.socket;
     if (!socket || socket.readyState !== 1) throw new Error('connection closed during attach');
+    /** @type {HerdAttachment} */
     const attachment = {
       channel: result.channel,
       result,
@@ -525,6 +828,11 @@ export class HerdConnection {
     return attachment;
   }
 
+  /**
+   * Stop reconnecting, close streams, and release listeners.
+   * @returns {void}
+   * @fires HerdConnection#status
+   */
   destroy() {
     if (this.destroyed) return;
     this.destroyed = true;
@@ -550,6 +858,7 @@ export class HerdConnection {
 }
 
 let ghosttyPromise;
+/** @returns {Promise<void>} */
 const loadGhostty = () => {
   if (!ghosttyPromise) {
     ghosttyPromise = Promise.resolve(init()).catch((error) => {
@@ -561,6 +870,10 @@ const loadGhostty = () => {
 };
 
 export class HerdView {
+  /**
+   * @param {HerdConnection} connection
+   * @param {HerdViewOptions} [options]
+   */
   constructor(connection, {
     terminalOptions = {},
     history = 500,
@@ -576,12 +889,18 @@ export class HerdView {
     this.autoResize = autoResize;
     this.focusTarget = focusTarget;
     this.emitter = new Emitter();
+    /** @type {HTMLElement | null} */
     this.container = null;
+    /** @type {string | null} */
     this.address = null;
     this.observe = false;
+    /** @type {HerdAttachment | null} */
     this.attachment = null;
+    /** @type {Terminal | null} */
     this.terminal = null;
+    /** @type {FitAddon | null} */
     this.fit = null;
+    /** @type {Array<{ dispose: () => void }>} */
     this.disposables = [];
     this.generation = 0;
     this.wantsAttach = false;
@@ -601,14 +920,27 @@ export class HerdView {
     });
   }
 
+  /**
+   * Subscribe to a view event.
+   * @template {keyof HerdViewEventMap} T
+   * @param {T} type
+   * @param {(detail: HerdViewEventMap[T]) => void} listener
+   * @returns {() => void} Unsubscribe function.
+   */
   on(type, listener) {
     return this.emitter.on(type, listener);
   }
 
+  /** @returns {boolean} */
   get active() {
     return Boolean(this.attachment?.open);
   }
 
+  /**
+   * Set the element owned by this view while attached.
+   * @param {HTMLElement} element
+   * @returns {this}
+   */
   mount(element) {
     if (this.destroyed) throw new Error('view destroyed');
     if (!element) throw new TypeError('mount element is required');
@@ -617,6 +949,7 @@ export class HerdView {
     return this;
   }
 
+  /** @private @param {HerdViewState} state @param {Object} [detail] */
   emitStatus(state, detail = {}) {
     this.emitter.emit('status', {
       state,
@@ -626,6 +959,16 @@ export class HerdView {
     });
   }
 
+  /**
+   * Attach and render first paint plus live output.
+   * @param {string} address Terminal address.
+   * @param {{ observe?: boolean }} [options]
+   * @returns {Promise<this>}
+   * @fires HerdView#status
+   * @fires HerdView#title
+   * @fires HerdView#closed
+   * @fires HerdView#resize
+   */
   async attach(address, { observe = this.observe } = {}) {
     if (this.destroyed) throw new Error('view destroyed');
     if (!this.container) throw new Error('mount the view before attaching');
@@ -714,6 +1057,12 @@ export class HerdView {
     }
   }
 
+  /**
+   * Reattach in viewer or observer mode.
+   * @param {boolean} observe
+   * @returns {Promise<this>}
+   * @fires HerdView#status
+   */
   setObserve(observe) {
     const next = Boolean(observe);
     if (this.wantsAttach && this.address) return this.attach(this.address, { observe: next });
@@ -721,23 +1070,39 @@ export class HerdView {
     return Promise.resolve(this);
   }
 
+  /**
+   * Send keyboard-equivalent input.
+   * @param {string | BinaryInput} data
+   * @returns {boolean} `false` in observer mode or while inactive.
+   */
   write(data) {
     if (!this.active || this.observe) return false;
     return this.attachment.write(data);
   }
 
+  /**
+   * Focus the terminal and report focus for a viewer.
+   * @returns {boolean} Whether focus was reported.
+   * @fires HerdView#focus
+   */
   focus() {
     if (!this.active || this.observe) return false;
     this.terminal?.focus();
     return this.reportFocus(true);
   }
 
+  /** @private @param {boolean} focused @returns {boolean} */
   reportFocus(focused) {
     if (!this.active || this.observe) return false;
     this.emitter.emit('focus', { focused });
     return this.attachment.focus(focused);
   }
 
+  /**
+   * Close the attachment and dispose the renderer.
+   * @returns {void}
+   * @fires HerdView#status
+   */
   detach() {
     if (this.destroyed) return;
     ++this.generation;
@@ -750,6 +1115,7 @@ export class HerdView {
     this.emitStatus('detached');
   }
 
+  /** @private */
   disposeTerminal() {
     for (const disposable of this.disposables.splice(0)) {
       try {
@@ -764,6 +1130,11 @@ export class HerdView {
     this.terminal = null;
   }
 
+  /**
+   * Permanently release the view and its listeners.
+   * @returns {void}
+   * @fires HerdView#status
+   */
   destroy() {
     if (this.destroyed) return;
     ++this.generation;
