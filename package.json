@@ -1,6 +1,6 @@
 {
   "name": "herdview",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Embeddable herdr terminal connections and terminal views",
   "type": "module",
   "exports": {
