@@ -1,0 +1,34 @@
+{
+  "name": "herdview",
+  "version": "0.1.0",
+  "description": "Embeddable herdr terminal connections and terminal views",
+  "type": "module",
+  "exports": {
+    ".": "./index.js",
+    "./json-lines": "./json-lines.js",
+    "./json-lines.js": "./json-lines.js",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "index.js",
+    "json-lines.js",
+    "README.md"
+  ],
+  "scripts": {
+    "check": "node --check index.js && node --check json-lines.js",
+    "test": "node --test test/*.test.mjs"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "dependencies": {
+    "ghostty-web": "^0.4.0"
+  },
+  "keywords": [
+    "herdr",
+    "terminal",
+    "ghostty",
+    "web-terminal"
+  ],
+  "license": "MIT"
+}
