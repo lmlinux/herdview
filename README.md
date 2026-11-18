@@ -6,6 +6,10 @@
 - `HerdView`: one mountable terminal with attach, observe mode, keyboard input, resize/focus reporting, and lifecycle events.
 - One connection can drive any number of views. No sidebar, terminal list, status indicator, or other application UI is included.
 
+**TypeScript ready**: full `.d.ts` declarations are included — TS consumers get complete type safety for constructor options, methods, events, and payloads. JS source, no build step required.
+
+**Battle-tested**: extracted from [herdgate](https://www.npmjs.com/package/herdgate) and hardened through cross-model AI review (kimi + glm) and browser-level E2E testing. Three major protocol bugs found and fixed: connect() now settles on failure, reconnect backoff resets after success, and CREDIT is always sent even when user listeners throw.
+
 ## Install
 
 ```sh

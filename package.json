@@ -1,6 +1,6 @@
 {
   "name": "herdview",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "Embeddable terminal pane component for herdr-core: HerdConnection + HerdView, one connection many views, zero built-in UI, ghostty-web rendering",
   "type": "module",
   "exports": {
