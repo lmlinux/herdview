@@ -877,7 +877,16 @@ const remeasureCjkFont = (terminal) => {
   const cjkAdvance = context.measureText('\u6c38').width;
   if (!Number.isFinite(cjkAdvance) || cjkAdvance <= 0) return;
   renderer.remeasureFont();
-  renderer.metrics.width = Math.max(1, Math.ceil(cjkAdvance / 2));
+  // The cell must fit BOTH the Latin font (ghostty-web measures it) and half the
+  // CJK advance. On clients without a true dual-width CJK font, CJK falls back to
+  // a proportional font whose advance is NOT 2x the Latin advance: taking only
+  // ceil(cjkAdvance/2) made the cell NARROWER than the Latin glyphs (observed:
+  // cell 7px vs Latin advance 7.83px -> adjacent Latin glyphs overlap).
+  // CJK occupies 2 cells regardless; it only needs 2*cell >= its advance.
+  renderer.metrics.width = Math.max(
+    renderer.metrics.width || 0,
+    Math.max(1, Math.ceil(cjkAdvance / 2)),
+  );
 };
 
 export class HerdView {
