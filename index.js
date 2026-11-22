@@ -869,6 +869,17 @@ const loadGhostty = () => {
   return ghosttyPromise;
 };
 
+const remeasureCjkFont = (terminal) => {
+  const renderer = terminal.renderer;
+  const context = globalThis.document?.createElement('canvas').getContext('2d');
+  if (!renderer || !context) return;
+  context.font = `${terminal.options.fontSize}px ${terminal.options.fontFamily}`;
+  const cjkAdvance = context.measureText('\u6c38').width;
+  if (!Number.isFinite(cjkAdvance) || cjkAdvance <= 0) return;
+  renderer.remeasureFont();
+  renderer.metrics.width = Math.max(1, Math.ceil(cjkAdvance / 2));
+};
+
 export class HerdView {
   /**
    * @param {HerdConnection} connection
@@ -993,10 +1004,23 @@ export class HerdView {
       this.fit = fit;
       terminal.loadAddon(fit);
       terminal.open(this.container);
+      await globalThis.document?.fonts?.ready;
+      if (generation !== this.generation) return this;
+      remeasureCjkFont(terminal);
       try {
         fit.fit();
         if (this.autoResize) fit.observeResize();
       } catch {}
+      if (terminal.renderer && terminal.wasmTerm) {
+        terminal.renderer.resize(terminal.cols, terminal.rows);
+        terminal.renderer.render(
+          terminal.wasmTerm,
+          true,
+          terminal.viewportY,
+          terminal,
+          terminal.scrollbarOpacity,
+        );
+      }
       this.disposables.push(terminal.onData((data) => this.write(data)));
       this.disposables.push(terminal.onResize(({ cols, rows }) => {
         this.emitter.emit('resize', { cols, rows });
