@@ -10,6 +10,11 @@
 
 **Battle-tested**: extracted from [herdgate](https://www.npmjs.com/package/herdgate) and hardened through cross-model AI review (kimi + glm) and browser-level E2E testing. Three major protocol bugs found and fixed: connect() now settles on failure, reconnect backoff resets after success, and CREDIT is always sent even when user listeners throw.
 
+## CJK terminal rendering
+
+The cell grid derives from the CJK glyph advance: after fonts load, `HerdView` measures a CJK glyph (U+6C38), halves its advance, and writes it back to the ghostty-web renderer metrics. CJK characters always occupy exactly two cells; on hosts without a dual-width font installed the Latin density is slightly loose, which is the accepted trade-off. For best rendering install Sarasa Mono SC or Noto Sans Mono CJK SC and pass their names via `terminalOptions.fontFamily`.
+
+
 ## Install
 
 ```sh
