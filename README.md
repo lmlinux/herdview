@@ -64,6 +64,10 @@ await view.attach('t1');
 
 The mount element is owned by the view while attached. Mount before calling `attach()`.
 
+### Attach history resynchronization
+
+With `history > 0`, the server can start replay in the middle of an escape sequence. Herdview discards the ambiguous prefix of the first non-empty replay payload through the next `ESC` boundary, then passes later live output through unchanged. If that replay payload contains no `ESC`, it is discarded rather than risking a garbled screen. Set `history: 0` to disable replay and its filtering.
+
 ## HerdConnection
 
 ```js
@@ -136,3 +140,5 @@ npm run check
 ```
 
 `test/browser-check.cjs` is an optional consumer smoke test for a running herdgate instance. It requires Playwright and uses `HERDVIEW_URL` (default `http://127.0.0.1:8795/`) and `HERDVIEW_SCREENSHOT`. Set `PLAYWRIGHT_MODULE` when Playwright is installed outside the project.
+
+The attach-history regression tests instantiate ghostty-web's real WASM terminal headlessly and assert its screen rows after mid-sequence replay cuts. They verify parsing and terminal state under plain Node; canvas rendering is covered only by the optional browser smoke test.

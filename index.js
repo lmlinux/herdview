@@ -250,6 +250,31 @@ const asBytes = (value) => {
 };
 
 /**
+ * Resynchronize the arbitrarily sliced history payload at an explicit escape
+ * boundary. Printable bytes before that boundary might be OSC/DCS payload, so
+ * feeding them to a fresh parser can render fragments as terminal text.
+ *
+ * Only the first non-empty payload is replay; later live output must pass
+ * through unchanged, including plain text without any escape sequences.
+ *
+ * @param {(bytes: Uint8Array) => void} onData
+ * @returns {(bytes: Uint8Array) => void}
+ */
+const createHistoryReplayHandler = (onData) => {
+  let replay = true;
+  return (bytes) => {
+    if (!replay) {
+      onData(bytes);
+      return;
+    }
+    if (bytes.byteLength === 0) return;
+    replay = false;
+    const start = bytes.indexOf(0x1b);
+    if (start !== -1) onData(bytes.subarray(start));
+  };
+};
+
+/**
  * Create an incremental UTF-8 JSON-lines parser.
  * @param {(line: string) => void} onLine Callback for each complete JSON line.
  * @returns {(chunk: BinaryInput) => void} A function that accepts binary chunks.
@@ -796,7 +821,7 @@ export class HerdConnection {
       result,
       socket,
       open: true,
-      onData,
+      onData: history > 0 ? createHistoryReplayHandler(onData) : onData,
       onClose,
       onDisconnect,
       write: (data) => this.sendFrame(

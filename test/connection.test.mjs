@@ -158,10 +158,10 @@ test('one connection routes and credits multiple independent attachments', async
   const second = [];
   const closed = [];
   const attachment1 = await connection.openAttachment({
-    terminal: 't1', cols: 80, rows: 24, onData: (bytes) => first.push(decode(bytes)),
+    terminal: 't1', cols: 80, rows: 24, history: 0, onData: (bytes) => first.push(decode(bytes)),
   });
   const attachment2 = await connection.openAttachment({
-    terminal: 't2', cols: 100, rows: 30, onData: (bytes) => second.push(decode(bytes)),
+    terminal: 't2', cols: 100, rows: 30, history: 0, onData: (bytes) => second.push(decode(bytes)),
     onClose: (reason) => closed.push(reason),
   });
   assert.notEqual(attachment1.channel, attachment2.channel);
@@ -270,6 +270,7 @@ test('attachment channels return CREDIT when the data callback throws', async ()
     terminal: 't1',
     cols: 80,
     rows: 24,
+    history: 0,
     onData: () => {
       throw new Error('renderer failure');
     },
@@ -288,6 +289,11 @@ test('attach history recovers when the server cuts inside escape sequences', asy
     + '\x1b[34mEND\x1b[0m';
   const history = encode(historyText);
   const cases = [
+    {
+      name: 'complete sequence boundary',
+      offset: 0,
+      expected: ['RED', 'READY', 'END', '', ''],
+    },
     {
       name: 'CSI cursor movement',
       offset: historyText.indexOf('[H') + 1,
@@ -325,4 +331,22 @@ test('attach history recovers when the server cuts inside escape sequences', asy
       }
     });
   }
+});
+
+test('history replay filtering ends after the first payload', async () => {
+  const { connection, socket } = await createConnection();
+  const output = [];
+  const attachment = await connection.openAttachment({
+    terminal: 't1',
+    cols: 80,
+    rows: 24,
+    history: 500,
+    onData: (bytes) => output.push(decode(bytes)),
+  });
+
+  socket.receive(encodeFrame(attachment.channel, 0, new Uint8Array(0)));
+  socket.receive(encodeFrame(attachment.channel, 0, encode('plain replay without escapes')));
+  socket.receive(encodeFrame(attachment.channel, 0, encode('live output')));
+  assert.deepEqual(output, ['live output']);
+  connection.destroy();
 });
