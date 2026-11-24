@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import test from 'node:test';
 import { Ghostty } from 'ghostty-web';
-import { decodeFrame, decodeResize, encodeFrame, encodeResize, HerdConnection } from '../index.js';
+import { decodeFrame, decodeResize, encodeFrame, encodeResize, HerdConnection, HerdView } from '../index.js';
 
 const encode = (text) => new TextEncoder().encode(text);
 const decode = (bytes) => new TextDecoder().decode(bytes);
@@ -174,6 +174,10 @@ test('one connection routes and credits multiple independent attachments', async
   assert.equal(new DataView(firstCredit.buffer, firstCredit.byteOffset, 4).getUint32(0, true), 5);
   assert.equal(new DataView(secondCredit.buffer, secondCredit.byteOffset, 4).getUint32(0, true), 6);
 
+  attachment1.resize(90, 25);
+  const viewerResize = socket.frames(attachment1.channel, 3)[0];
+  assert.deepEqual(decodeResize(viewerResize.payload), { cols: 90, rows: 25 });
+
   attachment1.close();
   socket.receive(encodeFrame(attachment2.channel, 2, encode('{"reason":"exited","exit_code":0}')));
   assert.deepEqual(closed, [{ reason: 'exited', exit_code: 0 }]);
@@ -316,6 +320,69 @@ test('attachment channels dispatch remote resizes and preserve DATA flow control
   assert.deepEqual(output, ['replacement paint']);
   assert.equal(socket.frames(attachment.channel, 1).length, 1);
   connection.destroy();
+});
+
+test('observer grids follow the attach size and later remote resizes', async () => {
+  const terminal = await createHeadlessTerminal();
+  const view = Object.assign(Object.create(HerdView.prototype), {
+    observe: true,
+    observeScaleToFit: false,
+    terminal,
+  });
+  try {
+    view.resizeObserverGrid(200, 120);
+    assert.equal(terminal.cols, 200);
+    assert.equal(terminal.rows, 120);
+
+    view.resizeObserverGrid(66, 25);
+    assert.equal(terminal.cols, 66);
+    assert.equal(terminal.rows, 25);
+
+    terminal.write(encode('x'.repeat(60)));
+    assert.equal(screenLines(terminal)[0], 'x'.repeat(60));
+  } finally {
+    terminal.free();
+  }
+});
+
+test('remote grid updates cannot resize a non-observe terminal', async () => {
+  const terminal = await createHeadlessTerminal();
+  const view = Object.assign(Object.create(HerdView.prototype), {
+    observe: false,
+    observeScaleToFit: true,
+    terminal,
+  });
+  try {
+    view.resizeObserverGrid(200, 120);
+    assert.equal(terminal.cols, 40);
+    assert.equal(terminal.rows, 5);
+  } finally {
+    terminal.free();
+  }
+});
+
+test('observer scaling preserves aspect ratio and only scales down', () => {
+  const canvas = { style: {} };
+  const view = Object.assign(Object.create(HerdView.prototype), {
+    observe: true,
+    observeScaleToFit: true,
+    container: { clientWidth: 390, clientHeight: 844 },
+    terminal: {
+      cols: 200,
+      rows: 120,
+      renderer: {
+        getCanvas: () => canvas,
+        getMetrics: () => ({ width: 10, height: 20 }),
+      },
+    },
+  });
+  view.updateObserverScale();
+  assert.equal(canvas.style.transformOrigin, 'top left');
+  assert.equal(canvas.style.transform, 'scale(0.195)');
+
+  view.container = { clientWidth: 3000, clientHeight: 3000 };
+  view.updateObserverScale();
+  assert.equal(canvas.style.transform, '');
 });
 
 test('attach history recovers when the server cuts inside escape sequences', async (t) => {

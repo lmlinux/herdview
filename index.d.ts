@@ -193,9 +193,13 @@ export type HerdViewOptions = {
      */
     autoFocus?: boolean;
     /**
-     * Whether to observe the container size.
+     * Whether to observe the container size in viewer mode.
      */
     autoResize?: boolean;
+    /**
+     * Whether to scale an observer's remote grid down to fit its container.
+     */
+    observeScaleToFit?: boolean;
     /**
      * Target for focus and blur listeners.
      */
@@ -439,6 +443,7 @@ export declare class HerdView {
     history: number;
     autoFocus: boolean;
     autoResize: boolean;
+    observeScaleToFit: boolean;
     focusTarget: FocusTarget | null;
     emitter: Emitter;
     /** @type {HTMLElement | null} */
@@ -452,6 +457,10 @@ export declare class HerdView {
     terminal: Terminal | null;
     /** @type {FitAddon | null} */
     fit: FitAddon | null;
+    /** @type {ResizeObserver | null} */
+    scaleObserver: ResizeObserver | null;
+    /** @type {string | null} */
+    savedContainerOverflow: string | null;
     /** @type {Array<{ dispose: () => void }>} */
     disposables: Array<{
         dispose: () => void;
@@ -467,7 +476,7 @@ export declare class HerdView {
      * @param {HerdConnection} connection
      * @param {HerdViewOptions} [options]
      */
-    constructor(connection: HerdConnection, { terminalOptions, history, autoFocus, autoResize, focusTarget, }?: HerdViewOptions);
+    constructor(connection: HerdConnection, { terminalOptions, history, autoFocus, autoResize, observeScaleToFit, focusTarget, }?: HerdViewOptions);
     /**
      * Subscribe to a view event.
      * @template {keyof HerdViewEventMap} T
@@ -486,6 +495,12 @@ export declare class HerdView {
     mount(element: HTMLElement): this;
     /** @private @param {HerdViewState} state @param {Object} [detail] */
     private emitStatus;
+    /** @private */
+    private startObserverScaling;
+    /** @private */
+    private updateObserverScale;
+    /** @private */
+    private resizeObserverGrid;
     /**
      * Attach and render first paint plus live output.
      * @param {string} address Terminal address.

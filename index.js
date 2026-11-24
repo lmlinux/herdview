@@ -148,7 +148,8 @@ import { init, Terminal, FitAddon } from 'ghostty-web';
  * @property {HerdTerminalOptions} [terminalOptions] Options passed to the ghostty-web terminal.
  * @property {number} [history=500] Number of history bytes to request on attach.
  * @property {boolean} [autoFocus=true] Whether to focus after attaching as a viewer.
- * @property {boolean} [autoResize=true] Whether to observe the container size.
+ * @property {boolean} [autoResize=true] Whether to observe the container size in viewer mode.
+ * @property {boolean} [observeScaleToFit=true] Whether to scale an observer's remote grid down to fit its container.
  * @property {FocusTarget | null} [focusTarget=globalThis.window] Target for focus and blur listeners.
  */
 
@@ -950,6 +951,7 @@ export class HerdView {
     history = 500,
     autoFocus = true,
     autoResize = true,
+    observeScaleToFit = true,
     focusTarget = globalThis.window,
   } = {}) {
     if (!connection) throw new TypeError('connection is required');
@@ -958,6 +960,7 @@ export class HerdView {
     this.history = history;
     this.autoFocus = autoFocus;
     this.autoResize = autoResize;
+    this.observeScaleToFit = observeScaleToFit;
     this.focusTarget = focusTarget;
     this.emitter = new Emitter();
     /** @type {HTMLElement | null} */
@@ -971,6 +974,10 @@ export class HerdView {
     this.terminal = null;
     /** @type {FitAddon | null} */
     this.fit = null;
+    /** @type {ResizeObserver | null} */
+    this.scaleObserver = null;
+    /** @type {string | null} */
+    this.savedContainerOverflow = null;
     /** @type {Array<{ dispose: () => void }>} */
     this.disposables = [];
     this.generation = 0;
@@ -1030,6 +1037,49 @@ export class HerdView {
     });
   }
 
+  /** @private */
+  startObserverScaling() {
+    if (!this.observe || !this.observeScaleToFit || !this.container) return;
+    this.savedContainerOverflow = this.container.style.overflow;
+    this.container.style.overflow = 'hidden';
+    this.updateObserverScale();
+    if (globalThis.ResizeObserver) {
+      this.scaleObserver = new globalThis.ResizeObserver(() => this.updateObserverScale());
+      this.scaleObserver.observe(this.container);
+    }
+  }
+
+  /** @private */
+  updateObserverScale() {
+    const terminal = this.terminal;
+    const container = this.container;
+    if (!this.observe || !this.observeScaleToFit || !terminal || !container) return;
+    const metrics = terminal.renderer?.getMetrics();
+    const canvas = terminal.renderer?.getCanvas();
+    const width = (metrics?.width || 0) * terminal.cols;
+    const height = (metrics?.height || 0) * terminal.rows;
+    if (!canvas || !width || !height || !container.clientWidth || !container.clientHeight) return;
+    const scale = Math.min(1, container.clientWidth / width, container.clientHeight / height);
+    canvas.style.transformOrigin = 'top left';
+    canvas.style.transform = scale < 1 ? `scale(${scale})` : '';
+  }
+
+  /**
+   * Keep an observer's cell grid identical to the remote pty. RESIZE arrives
+   * before the core's replacement paint, so this resize must stay synchronous.
+   * @private
+   * @param {number} cols
+   * @param {number} rows
+   */
+  resizeObserverGrid(cols, rows) {
+    const terminal = this.terminal;
+    if (!this.observe || !terminal) return;
+    if (!Number.isInteger(cols) || !Number.isInteger(rows)) return;
+    if (cols < 1 || rows < 1 || cols > 65535 || rows > 65535) return;
+    if (terminal.cols !== cols || terminal.rows !== rows) terminal.resize(cols, rows);
+    this.updateObserverScale();
+  }
+
   /**
    * Attach and render first paint plus live output.
    * @param {string} address Terminal address.
@@ -1068,8 +1118,10 @@ export class HerdView {
       if (generation !== this.generation) return this;
       remeasureCjkFont(terminal);
       try {
-        fit.fit();
-        if (this.autoResize) fit.observeResize();
+        if (!this.observe) {
+          fit.fit();
+          if (this.autoResize) fit.observeResize();
+        }
       } catch {}
       if (terminal.renderer && terminal.wasmTerm) {
         terminal.renderer.resize(terminal.cols, terminal.rows);
@@ -1081,6 +1133,7 @@ export class HerdView {
           terminal.scrollbarOpacity,
         );
       }
+      this.startObserverScaling();
       this.disposables.push(terminal.onData((data) => this.write(data)));
       this.disposables.push(terminal.onResize(({ cols, rows }) => {
         this.emitter.emit('resize', { cols, rows });
@@ -1101,6 +1154,11 @@ export class HerdView {
         observe: this.observe,
         onData: (bytes) => {
           if (generation === this.generation) terminal.write(bytes);
+        },
+        onResize: (cols, rows) => {
+          if (generation === this.generation && this.observe) {
+            this.resizeObserverGrid(cols, rows);
+          }
         },
         onClose: (reason) => {
           if (generation !== this.generation) return;
@@ -1123,6 +1181,9 @@ export class HerdView {
       }
       this.attachment = attachment;
       this.reconnectNeeded = false;
+      if (this.observe) {
+        this.resizeObserverGrid(attachment.result.terminal?.cols, attachment.result.terminal?.rows);
+      }
       this.emitStatus('attached', { terminal: attachment.result.terminal });
       if (!this.observe && this.autoFocus) this.focus();
       return this;
@@ -1201,6 +1262,12 @@ export class HerdView {
 
   /** @private */
   disposeTerminal() {
+    this.scaleObserver?.disconnect();
+    this.scaleObserver = null;
+    if (this.savedContainerOverflow !== null && this.container) {
+      this.container.style.overflow = this.savedContainerOverflow;
+      this.savedContainerOverflow = null;
+    }
     for (const disposable of this.disposables.splice(0)) {
       try {
         disposable?.dispose();
