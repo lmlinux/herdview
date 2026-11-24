@@ -17,6 +17,7 @@ class FakeWebSocket {
     this.sent = [];
     this.autoRespond = true;
     this.attachSeq = 20;
+    this.remoteSize = { cols: 200, rows: 120 };
     FakeWebSocket.instances.push(this);
   }
 
@@ -31,9 +32,14 @@ class FakeWebSocket {
       } else if (request.method === 'terminal.list') {
         result = { terminals: [...this.terminalSnapshot || [{ address: 't1', name: 'demo', state: 'running' }]] };
       } else if (request.method === 'terminal.attach') {
+        const size = request.params.observe
+          ? this.remoteSize
+          : { cols: request.params.cols, rows: request.params.rows };
+        this.remoteSize = size;
         result = {
           channel: ++this.attachSeq,
-          terminal: { address: request.params.terminal, name: request.params.terminal },
+          terminal: { address: request.params.terminal, name: request.params.terminal, ...size },
+          resize_notifications: Boolean(request.params.observe && request.params.resize_notifications),
         };
       }
       this.receive(encodeFrame(0, 0, encode(JSON.stringify({ id: request.id, result }))));
@@ -383,6 +389,179 @@ test('observer scaling preserves aspect ratio and only scales down', () => {
   view.container = { clientWidth: 3000, clientHeight: 3000 };
   view.updateObserverScale();
   assert.equal(canvas.style.transform, '');
+
+  const previousGetComputedStyle = globalThis.getComputedStyle;
+  try {
+    globalThis.getComputedStyle = () => ({
+      getPropertyValue: (property) => ({
+        'padding-left': '10px',
+        'padding-right': '10px',
+        'padding-top': '10px',
+        'padding-bottom': '10px',
+      })[property] || '0px',
+    });
+    view.container = { clientWidth: 410, clientHeight: 864 };
+    view.updateObserverScale();
+    assert.equal(canvas.style.transform, 'scale(0.195)');
+  } finally {
+    if (previousGetComputedStyle) globalThis.getComputedStyle = previousGetComputedStyle;
+    else delete globalThis.getComputedStyle;
+  }
+});
+
+test('HerdView.attach follows remote and local sizing across its public lifecycle', async () => {
+  const grids = await Promise.all(Array.from({ length: 4 }, () => createHeadlessTerminal()));
+
+  class HeadlessTerminal {
+    constructor() {
+      this.grid = grids.shift();
+      if (!this.grid) throw new Error('no headless grid prepared');
+      this.cols = this.grid.cols;
+      this.rows = this.grid.rows;
+      this.renderer = null;
+      this.wasmTerm = null;
+      this.options = { fontSize: 15, fontFamily: 'monospace' };
+      this.onTitleChange = null;
+      this.resizeListeners = new Set();
+    }
+
+    loadAddon(addon) {
+      addon.activate(this);
+    }
+
+    open(element) {
+      this.element = element;
+    }
+
+    onData() {
+      return { dispose() {} };
+    }
+
+    onResize(listener) {
+      this.resizeListeners.add(listener);
+      return { dispose: () => this.resizeListeners.delete(listener) };
+    }
+
+    write(bytes) {
+      this.grid.write(bytes);
+    }
+
+    resize(cols, rows) {
+      if (cols === this.cols && rows === this.rows) return;
+      this.grid.resize(cols, rows);
+      this.cols = cols;
+      this.rows = rows;
+      for (const listener of [...this.resizeListeners]) listener({ cols, rows });
+    }
+
+    focus() {}
+
+    dispose() {
+      this.grid.free();
+      this.resizeListeners.clear();
+    }
+  }
+
+  class HeadlessFitAddon {
+    activate(terminal) {
+      this.terminal = terminal;
+      this.fitCalls = 0;
+      this.observeResizeCalls = 0;
+    }
+
+    fit() {
+      this.fitCalls += 1;
+      this.terminal.resize(66, 25);
+    }
+
+    observeResize() {
+      this.observeResizeCalls += 1;
+    }
+
+    dispose() {}
+  }
+
+  const importLine = "import { init, Terminal, FitAddon } from 'ghostty-web';";
+  const originalSource = await readFile(new URL('../index.js', import.meta.url), 'utf8');
+  const source = originalSource.replace(
+    importLine,
+    'const { init, Terminal, FitAddon } = globalThis.__herdviewHeadlessGhostty;',
+  );
+  assert.notEqual(source, originalSource);
+  globalThis.__herdviewHeadlessGhostty = {
+    init: async () => {},
+    Terminal: HeadlessTerminal,
+    FitAddon: HeadlessFitAddon,
+  };
+  let HeadlessHerdView;
+  try {
+    const url = `data:text/javascript;base64,${Buffer.from(source).toString('base64')}`;
+    ({ HerdView: HeadlessHerdView } = await import(url));
+  } finally {
+    delete globalThis.__herdviewHeadlessGhostty;
+  }
+
+  const { connection, socket } = await createConnection();
+  const container = {
+    style: { overflow: 'auto' },
+    clientWidth: 390,
+    clientHeight: 844,
+    replaceChildren() {},
+  };
+  const view = new HeadlessHerdView(connection, {
+    history: 0,
+    autoFocus: false,
+    observeScaleToFit: false,
+    focusTarget: null,
+  });
+  const size = () => ({ cols: view.terminal.cols, rows: view.terminal.rows });
+  try {
+    view.mount(container);
+    await view.attach('t1', { observe: true });
+    assert.deepEqual(size(), { cols: 200, rows: 120 });
+    assert.equal(view.fit.fitCalls, 0);
+    assert.equal(view.fit.observeResizeCalls, 0);
+    assert.equal(view.attachment.result.resize_notifications, true);
+
+    socket.receive(encodeFrame(view.attachment.channel, 3, encodeResize(90, 40)));
+    assert.deepEqual(size(), { cols: 90, rows: 40 });
+    socket.receive(encodeFrame(view.attachment.channel, 0, encode('x'.repeat(60))));
+    assert.equal(screenLines(view.terminal.grid)[0], 'x'.repeat(60));
+
+    await view.setObserve(false);
+    assert.deepEqual(size(), { cols: 66, rows: 25 });
+    assert.equal(view.fit.fitCalls, 1);
+    assert.equal(view.fit.observeResizeCalls, 1);
+    assert.equal(view.attachment.result.resize_notifications, false);
+    const viewerAttachment = view.attachment;
+    view.terminal.resize(67, 26);
+    const viewerResize = socket.frames(viewerAttachment.channel, 3)[0];
+    assert.deepEqual(decodeResize(viewerResize.payload), { cols: 67, rows: 26 });
+
+    socket.remoteSize = { cols: 67, rows: 26 };
+    await view.setObserve(true);
+    assert.deepEqual(size(), { cols: 67, rows: 26 });
+    assert.equal(view.fit.fitCalls, 0);
+    assert.equal(view.fit.observeResizeCalls, 0);
+
+    socket.serverClose();
+    await waitFor(() => FakeWebSocket.instances.length === 2, 'view did not reconnect');
+    const replacement = FakeWebSocket.instances[1];
+    replacement.remoteSize = { cols: 200, rows: 120 };
+    replacement.open();
+    replacement.gatewayReady();
+    await waitFor(
+      () => view.active && view.attachment?.socket === replacement,
+      'view did not reattach after reconnect',
+    );
+    assert.deepEqual(size(), { cols: 200, rows: 120 });
+    assert.equal(replacement.requests('terminal.attach').length, 1);
+    assert.equal(replacement.requests('terminal.attach')[0].params.observe, true);
+  } finally {
+    view.destroy();
+    connection.destroy();
+    for (const grid of grids) grid.free();
+  }
 });
 
 test('attach history recovers when the server cuts inside escape sequences', async (t) => {

@@ -1056,10 +1056,14 @@ export class HerdView {
     if (!this.observe || !this.observeScaleToFit || !terminal || !container) return;
     const metrics = terminal.renderer?.getMetrics();
     const canvas = terminal.renderer?.getCanvas();
+    const computed = globalThis.getComputedStyle?.(container);
+    const padding = (side) => Number.parseFloat(computed?.getPropertyValue(side)) || 0;
+    const contentWidth = Math.max(0, container.clientWidth - padding('padding-left') - padding('padding-right'));
+    const contentHeight = Math.max(0, container.clientHeight - padding('padding-top') - padding('padding-bottom'));
     const width = (metrics?.width || 0) * terminal.cols;
     const height = (metrics?.height || 0) * terminal.rows;
-    if (!canvas || !width || !height || !container.clientWidth || !container.clientHeight) return;
-    const scale = Math.min(1, container.clientWidth / width, container.clientHeight / height);
+    if (!canvas || !width || !height || !contentWidth || !contentHeight) return;
+    const scale = Math.min(1, contentWidth / width, contentHeight / height);
     canvas.style.transformOrigin = 'top left';
     canvas.style.transform = scale < 1 ? `scale(${scale})` : '';
   }
