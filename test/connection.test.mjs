@@ -1,5 +1,7 @@
 import assert from 'node:assert/strict';
+import { readFile } from 'node:fs/promises';
 import test from 'node:test';
+import { Ghostty } from 'ghostty-web';
 import { decodeFrame, encodeFrame, HerdConnection } from '../index.js';
 
 const encode = (text) => new TextEncoder().encode(text);
@@ -102,6 +104,22 @@ const createConnection = async (options = {}) => {
   await tick();
   return { connection, socket };
 };
+
+const ghosttyModule = await WebAssembly.compile(await readFile(
+  new URL('../node_modules/ghostty-web/ghostty-vt.wasm', import.meta.url),
+));
+
+const createHeadlessTerminal = async () => {
+  const instance = await WebAssembly.instantiate(ghosttyModule, { env: { log() {} } });
+  return new Ghostty(instance).createTerminal(40, 5);
+};
+
+const screenLines = (terminal) => Array.from({ length: terminal.rows }, (_, y) => (
+  (terminal.getLine(y) || [])
+    .map((cell) => cell.codepoint ? String.fromCodePoint(cell.codepoint) : '')
+    .join('')
+    .trimEnd()
+));
 
 test.beforeEach(() => {
   FakeWebSocket.instances.length = 0;
@@ -262,4 +280,49 @@ test('attachment channels return CREDIT when the data callback throws', async ()
   );
   assert.equal(socket.frames(attachment.channel, 1).length, 1);
   connection.destroy();
+});
+
+test('attach history recovers when the server cuts inside escape sequences', async (t) => {
+  const historyText = '\x1b[2J\x1b[H\x1b[31mRED\x1b[0m\r\n'
+    + '\x1b]0;busy agent\x07\x1b[1;32mREADY\x1b[0m\r\n'
+    + '\x1b[34mEND\x1b[0m';
+  const history = encode(historyText);
+  const cases = [
+    {
+      name: 'CSI cursor movement',
+      offset: historyText.indexOf('[H') + 1,
+      expected: ['RED', 'READY', 'END', '', ''],
+    },
+    {
+      name: 'SGR parameters',
+      offset: historyText.indexOf('[31m') + 2,
+      expected: ['', 'READY', 'END', '', ''],
+    },
+    {
+      name: 'OSC title',
+      offset: historyText.indexOf('busy agent') + 2,
+      expected: ['READY', 'END', '', '', ''],
+    },
+  ];
+
+  for (const { name, offset, expected } of cases) {
+    await t.test(name, async () => {
+      const { connection, socket } = await createConnection();
+      const terminal = await createHeadlessTerminal();
+      try {
+        const attachment = await connection.openAttachment({
+          terminal: 't1',
+          cols: 40,
+          rows: 5,
+          history: history.length,
+          onData: (bytes) => terminal.write(bytes),
+        });
+        socket.receive(encodeFrame(attachment.channel, 0, history.subarray(offset)));
+        assert.deepEqual(screenLines(terminal), expected);
+      } finally {
+        connection.destroy();
+        terminal.free();
+      }
+    });
+  }
 });
