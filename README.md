@@ -66,7 +66,7 @@ The mount element is owned by the view while attached. Mount before calling `att
 
 ### Attach history resynchronization
 
-With `history > 0`, the server can start replay in the middle of an escape sequence. Herdview discards the ambiguous prefix of the first non-empty replay payload through the next `ESC` boundary, then passes later live output through unchanged. If that replay payload contains no `ESC`, it is discarded rather than risking a garbled screen. Set `history: 0` to disable replay and its filtering.
+With `history > 0`, the server can start replay in the middle of an escape sequence. Herdview discards the ambiguous prefix of the first replay payload through the next `ESC` boundary, then passes later live output through unchanged. If that replay payload contains no `ESC`, it is discarded rather than risking a garbled screen. Set `history: 0` to disable replay and its filtering.
 
 ## HerdConnection
 

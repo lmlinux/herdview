@@ -254,8 +254,9 @@ const asBytes = (value) => {
  * boundary. Printable bytes before that boundary might be OSC/DCS payload, so
  * feeding them to a fresh parser can render fragments as terminal text.
  *
- * Only the first non-empty payload is replay; later live output must pass
- * through unchanged, including plain text without any escape sequences.
+ * Only the first payload is replay; later live output must pass through
+ * unchanged, including plain text without any escape sequences. An empty
+ * first paint still ends replay mode.
  *
  * @param {(bytes: Uint8Array) => void} onData
  * @returns {(bytes: Uint8Array) => void}
@@ -267,7 +268,6 @@ const createHistoryReplayHandler = (onData) => {
       onData(bytes);
       return;
     }
-    if (bytes.byteLength === 0) return;
     replay = false;
     const start = bytes.indexOf(0x1b);
     if (start !== -1) onData(bytes.subarray(start));

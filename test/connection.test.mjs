@@ -333,7 +333,7 @@ test('attach history recovers when the server cuts inside escape sequences', asy
   }
 });
 
-test('history replay filtering ends after the first payload', async () => {
+test('an empty first paint ends replay filtering', async () => {
   const { connection, socket } = await createConnection();
   const output = [];
   const attachment = await connection.openAttachment({
@@ -345,6 +345,22 @@ test('history replay filtering ends after the first payload', async () => {
   });
 
   socket.receive(encodeFrame(attachment.channel, 0, new Uint8Array(0)));
+  socket.receive(encodeFrame(attachment.channel, 0, encode('live output')));
+  assert.deepEqual(output, ['live output']);
+  connection.destroy();
+});
+
+test('a replay without escapes is discarded without swallowing live output', async () => {
+  const { connection, socket } = await createConnection();
+  const output = [];
+  const attachment = await connection.openAttachment({
+    terminal: 't1',
+    cols: 80,
+    rows: 24,
+    history: 500,
+    onData: (bytes) => output.push(decode(bytes)),
+  });
+
   socket.receive(encodeFrame(attachment.channel, 0, encode('plain replay without escapes')));
   socket.receive(encodeFrame(attachment.channel, 0, encode('live output')));
   assert.deepEqual(output, ['live output']);
