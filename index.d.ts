@@ -140,6 +140,10 @@ export type HerdAttachmentOptions = {
      */
     onData: (bytes: Uint8Array) => void;
     /**
+     * Remote terminal resize callback.
+     */
+    onResize?: (cols: number, rows: number) => void;
+    /**
      * Close callback.
      */
     onClose?: (reason: HerdCloseEvent | null) => void;
@@ -151,6 +155,10 @@ export type HerdAttachmentOptions = {
 export type HerdAttachmentResult = {
     channel: number;
     terminal: TerminalRecord;
+    /**
+     * Whether core-to-viewer RESIZE notifications are enabled.
+     */
+    resize_notifications?: boolean;
 };
 export type HerdAttachment = {
     channel: number;
@@ -158,6 +166,7 @@ export type HerdAttachment = {
     socket: WebSocketLike;
     open: boolean;
     onData: (bytes: Uint8Array) => void;
+    onResize: ((cols: number, rows: number) => void) | undefined;
     onClose: ((reason: HerdCloseEvent | null) => void) | undefined;
     onDisconnect: (() => void) | undefined;
     write: (data: string | BinaryInput) => boolean;
@@ -274,6 +283,13 @@ export declare function decodeFrame(input: BinaryInput): DecodedFrame | null;
 export declare function encodeCredit(bytes: number): Uint8Array;
 /** @param {number} cols @param {number} rows @returns {Uint8Array} */
 export declare function encodeResize(cols: number, rows: number): Uint8Array;
+/**
+ * Decode a core-to-viewer RESIZE payload (uint16 LE columns, then rows).
+ */
+export declare function decodeResize(payload: BinaryInput): {
+    cols: number;
+    rows: number;
+} | null;
 /**
  * @param {string | URL} url
  * @param {string | null} [token]
@@ -409,7 +425,7 @@ export declare class HerdConnection {
      * @param {HerdAttachmentOptions} options
      * @returns {Promise<HerdAttachment>}
      */
-    openAttachment({ terminal, cols, rows, history, observe, onData, onClose, onDisconnect }: HerdAttachmentOptions): Promise<HerdAttachment>;
+    openAttachment({ terminal, cols, rows, history, observe, onData, onResize, onClose, onDisconnect }: HerdAttachmentOptions): Promise<HerdAttachment>;
     /**
      * Stop reconnecting, close streams, and release listeners.
      * @returns {void}

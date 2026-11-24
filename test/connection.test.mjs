@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import test from 'node:test';
 import { Ghostty } from 'ghostty-web';
-import { decodeFrame, encodeFrame, HerdConnection } from '../index.js';
+import { decodeFrame, decodeResize, encodeFrame, encodeResize, HerdConnection } from '../index.js';
 
 const encode = (text) => new TextEncoder().encode(text);
 const decode = (bytes) => new TextDecoder().decode(bytes);
@@ -279,6 +279,41 @@ test('attachment channels return CREDIT when the data callback throws', async ()
     () => socket.receive(encodeFrame(attachment.channel, 0, encode('output'))),
     /renderer failure/,
   );
+  assert.equal(socket.frames(attachment.channel, 1).length, 1);
+  connection.destroy();
+});
+
+test('resize decoder reads uint16 little-endian columns and rows at byte offsets', () => {
+  const wrapped = Uint8Array.of(99, 200, 0, 120, 0, 88);
+  assert.deepEqual(decodeResize(wrapped.subarray(1, 5)), { cols: 200, rows: 120 });
+  assert.equal(decodeResize(Uint8Array.of(200, 0, 120)), null);
+  assert.equal(decodeResize(Uint8Array.of(200, 0, 120, 0, 0)), null);
+});
+
+test('attachment channels dispatch remote resizes and preserve DATA flow control', async () => {
+  const { connection, socket } = await createConnection();
+  const sizes = [];
+  const output = [];
+  const attachment = await connection.openAttachment({
+    terminal: 't1',
+    cols: 40,
+    rows: 5,
+    history: 0,
+    observe: true,
+    onData: (bytes) => output.push(decode(bytes)),
+    onResize: (cols, rows) => sizes.push({ cols, rows }),
+  });
+
+  socket.receive(encodeFrame(attachment.channel, 3, encodeResize(200, 120)));
+  socket.receive(encodeFrame(attachment.channel, 3, Uint8Array.of(200, 0, 120)));
+  assert.deepEqual(sizes, [{ cols: 200, rows: 120 }]);
+  assert.equal(
+    socket.requests('terminal.attach')[0].params.resize_notifications,
+    true,
+  );
+
+  socket.receive(encodeFrame(attachment.channel, 0, encode('replacement paint')));
+  assert.deepEqual(output, ['replacement paint']);
   assert.equal(socket.frames(attachment.channel, 1).length, 1);
   connection.destroy();
 });

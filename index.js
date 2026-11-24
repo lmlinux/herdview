@@ -107,6 +107,7 @@ import { init, Terminal, FitAddon } from 'ghostty-web';
  * @property {number} [history=500] Number of history bytes to request.
  * @property {boolean} [observe=false] Whether to attach in observer mode.
  * @property {(bytes: Uint8Array) => void} onData Terminal output callback.
+ * @property {(cols: number, rows: number) => void} [onResize] Remote terminal resize callback.
  * @property {(reason: HerdCloseEvent | null) => void} [onClose] Close callback.
  * @property {() => void} [onDisconnect] Disconnect callback.
  */
@@ -115,6 +116,7 @@ import { init, Terminal, FitAddon } from 'ghostty-web';
  * @typedef {Object} HerdAttachmentResult
  * @property {number} channel
  * @property {TerminalRecord} terminal
+ * @property {boolean} [resize_notifications] Whether core-to-viewer RESIZE notifications are enabled.
  */
 
 /**
@@ -124,6 +126,7 @@ import { init, Terminal, FitAddon } from 'ghostty-web';
  * @property {WebSocketLike} socket
  * @property {boolean} open
  * @property {(bytes: Uint8Array) => void} onData
+ * @property {((cols: number, rows: number) => void) | undefined} onResize
  * @property {((reason: HerdCloseEvent | null) => void) | undefined} onClose
  * @property {(() => void) | undefined} onDisconnect
  * @property {(data: string | BinaryInput) => boolean} write
@@ -349,6 +352,18 @@ export function encodeResize(cols, rows) {
   view.setUint16(0, cols, true);
   view.setUint16(2, rows, true);
   return output;
+}
+
+/**
+ * Decode a core-to-viewer RESIZE payload (uint16 LE columns, then rows).
+ * @param {BinaryInput} payload
+ * @returns {{ cols: number, rows: number } | null}
+ */
+export function decodeResize(payload) {
+  const bytes = asBytes(payload);
+  if (bytes.byteLength !== 4) return null;
+  const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+  return { cols: view.getUint16(0, true), rows: view.getUint16(2, true) };
 }
 
 /**
@@ -669,6 +684,9 @@ export class HerdConnection {
         } finally {
           this.sendFrame(channel, CREDIT, encodeCredit(payload.byteLength), socket);
         }
+      } else if (kind === RESIZE) {
+        const size = decodeResize(payload);
+        if (size) attachment.onResize?.(size.cols, size.rows);
       } else if (kind === CLOSE) {
         this.attachments.delete(channel);
         attachment.open = false;
@@ -810,9 +828,16 @@ export class HerdConnection {
    * @param {HerdAttachmentOptions} options
    * @returns {Promise<HerdAttachment>}
    */
-  async openAttachment({ terminal, cols, rows, history = 500, observe = false, onData, onClose, onDisconnect }) {
+  async openAttachment({ terminal, cols, rows, history = 500, observe = false, onData, onResize, onClose, onDisconnect }) {
     /** @type {HerdAttachmentResult} */
-    const result = await this.rpc('terminal.attach', { terminal, cols, rows, history, observe });
+    const result = await this.rpc('terminal.attach', {
+      terminal,
+      cols,
+      rows,
+      history,
+      observe,
+      resize_notifications: true,
+    });
     const socket = this.socket;
     if (!socket || socket.readyState !== 1) throw new Error('connection closed during attach');
     /** @type {HerdAttachment} */
@@ -822,6 +847,7 @@ export class HerdConnection {
       socket,
       open: true,
       onData: history > 0 ? createHistoryReplayHandler(onData) : onData,
+      onResize,
       onClose,
       onDisconnect,
       write: (data) => this.sendFrame(
