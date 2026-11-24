@@ -149,7 +149,7 @@ import { init, Terminal, FitAddon } from 'ghostty-web';
  * @property {number} [history=500] Number of history bytes to request on attach.
  * @property {boolean} [autoFocus=true] Whether to focus after attaching as a viewer.
  * @property {boolean} [autoResize=true] Whether to observe the container size in viewer mode.
- * @property {boolean} [observeScaleToFit=true] Whether to scale an observer's remote grid down to fit its container.
+ * @property {boolean} [observeScaleToFit=true] Whether to scale an observer's remote grid down to fit its container, centered and letterboxed within its content box.
  * @property {FocusTarget | null} [focusTarget=globalThis.window] Target for focus and blur listeners.
  */
 
@@ -1065,7 +1065,13 @@ export class HerdView {
     if (!canvas || !width || !height || !contentWidth || !contentHeight) return;
     const scale = Math.min(1, contentWidth / width, contentHeight / height);
     canvas.style.transformOrigin = 'top left';
-    canvas.style.transform = scale < 1 ? `scale(${scale})` : '';
+    if (scale < 1) {
+      const dx = Math.max(0, (contentWidth - width * scale) / 2);
+      const dy = Math.max(0, (contentHeight - height * scale) / 2);
+      canvas.style.transform = `translate(${dx}px, ${dy}px) scale(${scale})`;
+    } else {
+      canvas.style.transform = '';
+    }
   }
 
   /**

@@ -137,7 +137,7 @@ Observers never send input, RESIZE, or FOCUS frames. DATA is credited only after
 
 In observe mode the remote pty owns the cell grid. `HerdView` applies the attach result's `terminal.cols` and `terminal.rows`, requests core-to-viewer RESIZE notifications, and synchronously re-grids on each notification before its replacement paint. It does not fit the cell grid to the local container. Reconnects and `setObserve()` use the same behavior; viewer (non-observe) fitting and resize reporting are unchanged.
 
-By default, `observeScaleToFit: true` CSS-scales an oversized renderer down to fit the container while preserving aspect ratio (it never scales up). The container's overflow is hidden while this mode is active, and browser pinch-zoom remains available. To keep the remote grid at its natural pixel size and provide overflow scrolling in the host instead, disable scaling and style the mount element:
+By default, `observeScaleToFit: true` CSS-scales an oversized renderer down to fit the container while preserving aspect ratio (it never scales up). The scaled renderer is centered and letterboxed within the container's content box, so hosts get a centered presentation without extra styling. The container's overflow is hidden while this mode is active, and browser pinch-zoom remains available. To keep the remote grid at its natural pixel size and provide overflow scrolling in the host instead, disable scaling and style the mount element:
 
 ```js
 const view = new HerdView(connection, { observeScaleToFit: false });

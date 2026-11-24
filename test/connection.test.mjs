@@ -384,7 +384,7 @@ test('observer scaling preserves aspect ratio and only scales down', () => {
   });
   view.updateObserverScale();
   assert.equal(canvas.style.transformOrigin, 'top left');
-  assert.equal(canvas.style.transform, 'scale(0.195)');
+  assert.equal(canvas.style.transform, 'translate(0px, 188px) scale(0.195)');
 
   view.container = { clientWidth: 3000, clientHeight: 3000 };
   view.updateObserverScale();
@@ -402,14 +402,14 @@ test('observer scaling preserves aspect ratio and only scales down', () => {
     });
     view.container = { clientWidth: 410, clientHeight: 864 };
     view.updateObserverScale();
-    assert.equal(canvas.style.transform, 'scale(0.195)');
+    assert.equal(canvas.style.transform, 'translate(0px, 188px) scale(0.195)');
   } finally {
     if (previousGetComputedStyle) globalThis.getComputedStyle = previousGetComputedStyle;
     else delete globalThis.getComputedStyle;
   }
 });
 
-test('HerdView.attach follows remote and local sizing across its public lifecycle', async () => {
+test('HerdView.attach follows remote sizing and centers scaled observers across its public lifecycle', async () => {
   const grids = await Promise.all(Array.from({ length: 4 }, () => createHeadlessTerminal()));
 
   class HeadlessTerminal {
@@ -418,7 +418,11 @@ test('HerdView.attach follows remote and local sizing across its public lifecycl
       if (!this.grid) throw new Error('no headless grid prepared');
       this.cols = this.grid.cols;
       this.rows = this.grid.rows;
-      this.renderer = null;
+      this.canvas = { style: { transform: '', transformOrigin: '' } };
+      this.renderer = {
+        getCanvas: () => this.canvas,
+        getMetrics: () => ({ width: 10, height: 20 }),
+      };
       this.wasmTerm = null;
       this.options = { fontSize: 15, fontFamily: 'monospace' };
       this.onTitleChange = null;
@@ -504,14 +508,14 @@ test('HerdView.attach follows remote and local sizing across its public lifecycl
   const { connection, socket } = await createConnection();
   const container = {
     style: { overflow: 'auto' },
-    clientWidth: 390,
-    clientHeight: 844,
+    clientWidth: 1000,
+    clientHeight: 600,
     replaceChildren() {},
   };
   const view = new HeadlessHerdView(connection, {
     history: 0,
     autoFocus: false,
-    observeScaleToFit: false,
+    observeScaleToFit: true,
     focusTarget: null,
   });
   const size = () => ({ cols: view.terminal.cols, rows: view.terminal.rows });
@@ -519,12 +523,16 @@ test('HerdView.attach follows remote and local sizing across its public lifecycl
     view.mount(container);
     await view.attach('t1', { observe: true });
     assert.deepEqual(size(), { cols: 200, rows: 120 });
+    assert.equal(view.terminal.canvas.style.transformOrigin, 'top left');
+    assert.equal(view.terminal.canvas.style.transform, 'translate(250px, 0px) scale(0.25)');
+    assert.equal(container.style.overflow, 'hidden');
     assert.equal(view.fit.fitCalls, 0);
     assert.equal(view.fit.observeResizeCalls, 0);
     assert.equal(view.attachment.result.resize_notifications, true);
 
     socket.receive(encodeFrame(view.attachment.channel, 3, encodeResize(90, 40)));
     assert.deepEqual(size(), { cols: 90, rows: 40 });
+    assert.equal(view.terminal.canvas.style.transform, 'translate(162.5px, 0px) scale(0.75)');
     socket.receive(encodeFrame(view.attachment.channel, 0, encode('x'.repeat(60))));
     assert.equal(screenLines(view.terminal.grid)[0], 'x'.repeat(60));
 
@@ -533,14 +541,22 @@ test('HerdView.attach follows remote and local sizing across its public lifecycl
     assert.equal(view.fit.fitCalls, 1);
     assert.equal(view.fit.observeResizeCalls, 1);
     assert.equal(view.attachment.result.resize_notifications, false);
+    assert.equal(container.style.overflow, 'auto');
+    assert.equal(view.terminal.canvas.style.transform, '');
+    assert.equal(view.terminal.canvas.style.transformOrigin, '');
     const viewerAttachment = view.attachment;
     view.terminal.resize(67, 26);
     const viewerResize = socket.frames(viewerAttachment.channel, 3)[0];
     assert.deepEqual(decodeResize(viewerResize.payload), { cols: 67, rows: 26 });
 
     socket.remoteSize = { cols: 67, rows: 26 };
+    container.clientWidth = 670;
+    container.clientHeight = 520;
     await view.setObserve(true);
     assert.deepEqual(size(), { cols: 67, rows: 26 });
+    assert.equal(view.terminal.canvas.style.transform, '');
+    assert.equal(view.terminal.canvas.style.transformOrigin, 'top left');
+    assert.equal(container.style.overflow, 'hidden');
     assert.equal(view.fit.fitCalls, 0);
     assert.equal(view.fit.observeResizeCalls, 0);
 
@@ -557,6 +573,9 @@ test('HerdView.attach follows remote and local sizing across its public lifecycl
     assert.deepEqual(size(), { cols: 200, rows: 120 });
     assert.equal(replacement.requests('terminal.attach').length, 1);
     assert.equal(replacement.requests('terminal.attach')[0].params.observe, true);
+
+    view.detach();
+    assert.equal(container.style.overflow, 'auto');
   } finally {
     view.destroy();
     connection.destroy();

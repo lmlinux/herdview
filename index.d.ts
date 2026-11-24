@@ -198,6 +198,7 @@ export type HerdViewOptions = {
     autoResize?: boolean;
     /**
      * Whether to scale an observer's remote grid down to fit its container.
+     * The scaled renderer is centered and letterboxed within the container's content box.
      */
     observeScaleToFit?: boolean;
     /**
